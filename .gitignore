@@ -1,3 +1,4 @@
 logs/*
+data/omniglot*
 *.pyc
 *.swp
