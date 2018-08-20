@@ -10,6 +10,8 @@ import numpy as np
 from collections import OrderedDict
 import argparse
 import copy
+import os
+import random
 
 parser = argparse.ArgumentParser()
 #parser.add_argument('--model', default="model")
@@ -52,7 +54,7 @@ class Construct_Sequential(nn.Sequential):
     def copy_(self, weights):
         for name, param in self.named_parameters():
             param.data = weights[name].data
-            
+    
 
 
 
@@ -71,14 +73,33 @@ class MAML(nn.Module):
 
 def mse(predict, target):
     return torch.mean((predict-target)**2, axis=0)
-    
+
 
 def main():
+    # Sinusoidal data
     data_gen = Sinewave_data()
-
     inputs, targets = data_gen.gen(n=5, x_min=-5, x_max=5)
-#    model = Simple(d_hidden=5)
+
+    # Omniglot data
+    data_folder = './data/omniglot_resized'
+    character_folders = [os.path.join(data_folder, family, character) \
+            for family in os.listdir(data_folder) \
+            if os.path.isdir(os.path.join(data_folder, family)) \
+            for character in os.listdir(os.path.join(data_folder, family))]
+    print(np.array(character_folders).shape)
+    random.seed(1)
+    random.shuffle(character_folders)
+    num_val = 100
+    num_train = 1200 - num_val
+
+    metatrain_character_folders = character_folders[:num_train]
+    metaval_character_folders = character_folders[num_train:num_train+num_val]          # for test
+    metaval_character_folders = character_folders[num_train+num_val:]                   # validation in training
+    rotations = [0, 90, 180, 270]
+
+
     config = {}
+    # model for Sinusoidal
     config['model'] = OrderedDict([
         ('linear1', nn.Linear(1, 40)),
         ('relu1', nn.ReLU()),
@@ -86,50 +107,74 @@ def main():
         ('relu2', nn.ReLU()),
         ('linear3', nn.Linear(40, 1))
         ])
+    # model for Omniglot
+    dict = OrderedDict([
+        ('conv1', nn.Conv2d(1, 64, (3, 3))),
+        ('bn1', nn.BatchNorm2d(64)),
+        ('relu1', nn.ReLU()),
+        ('pool1', nn.MaxPool2d((2, 2))),
+        ('conv2', nn.Conv2d(64, 64, (3, 3))),
+        ('bn2', nn.BatchNorm2d(64)),
+        ('relu2', nn.ReLU()),
+        ('pool2', nn.MaxPool2d((2, 2))),
+        ('conv3', nn.Conv2d(64, 64, (3, 3))),
+        ('bn3', nn.BatchNorm2d(64)),
+        ('relu3', nn.ReLU()),
+        ('pool3', nn.MaxPool2d((2, 2)))
+        ])
+
     model = Construct_Sequential(config['model'])
-    print(model)
     fast_net = Construct_Sequential(config['model'])
-    loss_func = F.mse_loss 
-    
+
+    # loss for Sinusoidal
+    loss_func = F.mse_loss
+    loss_func = torch.nn.MSELoss()
+    # loss for Omniglot
+    loss_func = torch.nn.CrossEntropyLoss()
+    loss_func = F.cross_entropy
+
     learning_rate = args.beta
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    
+
     alpha = args.alpha
 
-    batch_size = 25 
+    # sinusiodal
+    batch_size = 25
     num_step = 1
     num_examples = 5
     max_iter = 70000
+    # omniglot iteration
+    max_iter = 40000
+    num_examples = 20   # 20-way
+    batch_size = 16     # for 20-way
+    alpha = .1          # for 20-way
+    num_step = 5        # for 20-way
+
+    num_examples = 5    # 5-way
+    batch_size = 32     # for 5-way
+    alpha = .4          # for 5-way
+    num_step = 1        # for 5-way
     for i in range(max_iter):
+        # for sinusoidal
         xs = np.zeros((batch_size, num_examples))
         ys = np.zeros((batch_size, num_examples))
+
+        # for omniglot
+        input_characters = random.sample(metatrain_character_folders, batch_size*num_examples).reshape(batch_size, num_examples)
+        image_label = [(os.path.join(character, image), i) \
+                for character, i in zip(input_characters, range(input_chracters)) \
+                for image in random.sample(os.listdir(character, num_examples))]
+
         weight0 = {}
         for name, module in model.named_parameters():
-           weight0[name] = module 
-#        model0 = copy.deepcopy(model)
-#        model0.copy_(model)
+           weight0[name] = module
+
         losses = torch.zeros((batch_size, num_step, 1))
         meta_losses = torch.zeros((batch_size, 1))
-
-        A = np.random.uniform(1, 5, batch_size).reshape(-1, 1)
-        b = np.random.uniform(0, np.pi, batch_size).reshape(-1, 1)
-
-        x = np.random.uniform(-5, 5, batch_size*num_examples).reshape(-1, num_examples)
-        y = np.multiply(A, np.sin(x - b))
-        
-        fast_net.copy_(weight0)
-        input = torch.tensor(x.reshape(-1, 1)).float()
-        target = torch.tensor(y.reshape(-1, 1)).float()
-
-        predict = fast_net(input)
-        print(predict.size(), target.size())
-
         for j in range(batch_size):
             fast_net.copy_(weight0)
-            
-#            model_j = copy.deepcopy(model)
-#            model_j.copy_(model)
-			
+
+            # for sinusoidal    
             A = np.random.uniform(1, 5, 1)
             b = np.random.uniform(0, np.pi, 1)
             xs[j] = np.random.uniform(-5, 5, num_examples)
@@ -138,20 +183,24 @@ def main():
             input = torch.tensor(xs[j]).reshape(-1, 1).float()
             target = torch.tensor(ys[j]).reshape(-1, 1).float()
 
+            # for sinusoidal
+            sampled_characters[j] = random.samples(metatrain_character_folders, num_examples)
+            lable_and_imagepaths = [(i, image_path) for zip()]
+
             predict = fast_net(input)
             losses[j][0] = loss_func(predict, target)
 
             grad = torch.autograd.grad(losses[j][0], fast_net.parameters(), create_graph=True)
-            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx]) 
+            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx])
                 for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters()))
                 ])
 
             for k in range(num_step-1):
                 predict = fast_net(input, weight_)
                 losses[j][k+1] = loss_func(predict, target)
-    
+
                 grad = torch.autograd.grad(losses[j][k+1], fast_net.parameters(), create_graph=True)
-                weight_ = OrderedDict([ (name, weight_[name] - alpha*grad[idx]) 
+                weight_ = OrderedDict([ (name, weight_[name] - alpha*grad[idx])
                     for name, (idx, _) in zip(weight_, enumerate(fast_net.parameters()))
                     ])
 
@@ -160,7 +209,7 @@ def main():
 
         loss = torch.mean(losses)
         meta_loss = torch.sum(meta_losses)
-        
+
         with open("logs/%s/log.txt"%args.log_folder, "a") as log_file:
             log_file.write("%5d\t%10.4f\n"%(i, meta_loss.item()))
 
@@ -171,7 +220,7 @@ def main():
 #            torch.save(model, "logs/sine/%05d.pt"%(i))
             dot = make_dot(meta_loss)
             dot.render()
-        
+
         optimizer.zero_grad()
         meta_loss.backward()
 #        for name, param in model.named_parameters():
@@ -181,3 +230,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
