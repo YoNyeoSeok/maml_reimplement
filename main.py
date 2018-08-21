@@ -213,7 +213,7 @@ def main():
         with open("logs/%s/log.txt"%args.log_folder, "a") as log_file:
             log_file.write("%5d\t%10.4f\n"%(i, meta_loss.item()))
 
-        if i % 1000 == 0:
+        if i % 100 == 0:
             #print("%4d, loss=%.4f"%(i, meta_loss))
             print("%4d, preloss=%.4f \t postloss=%.4f"%(i, loss, meta_loss))
             torch.save(model, "logs/%s/%05d.pt"%(args.log_folder, i))
