@@ -281,8 +281,8 @@ def main():
             print("%4d, preloss=%.4f \t postloss=%.4f"%(i, loss, meta_loss))
             torch.save(model, "logs/%s/%05d.pt"%(args.log_folder, i))
 #            torch.save(model, "logs/sine/%05d.pt"%(i))
-            dot = make_dot(meta_loss)
-            dot.render()
+            #dot = make_dot(meta_loss)
+            #dot.render()
         
         optimizer.zero_grad()
         meta_loss.backward()
