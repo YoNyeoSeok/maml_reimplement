@@ -231,6 +231,7 @@ def main():
                         for grad in grads]
         """ 
         loss = torch.mean(losses)
+        print(i, loss)
         meta_predicts = [model.forward(input, weight_) for weight_ in weights_]
         meta_loss = torch.mean(torch.cat([loss_func(meta_predict, target) for meta_predict in meta_predicts]))
         """ 
