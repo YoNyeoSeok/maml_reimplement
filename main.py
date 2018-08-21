@@ -17,7 +17,7 @@ from PIL import Image
 
 parser = argparse.ArgumentParser()
 #parser.add_argument('--model', default="model")
-parser.add_argument('--log_folder', type=str, default="sine")
+parser.add_argument('--log_folder', type=str, default="omniglot5way")
 parser.add_argument('alpha', type=float, nargs='?', default=1e-2)
 parser.add_argument('beta', type=float, nargs='?', default=1e-2)
 args = parser.parse_args()
