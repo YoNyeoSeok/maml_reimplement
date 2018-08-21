@@ -3,6 +3,16 @@ from torch import nn
 from torch.nn import functional as F
 from collections import OrderedDict
 
+class Change_view(nn.Module):
+    def __init__(self, size):
+        super(Change_view, self).__init__()
+        self.size = size
+    def forward(self, x, size=None):
+        if size is None:
+            size = self.size
+        x = x.view(size)
+        return x
+
 class Construct_Sequential(nn.Sequential):
     def __init__(self, *args, **kwargs):
         super(Construct_Sequential, self).__init__()
@@ -25,9 +35,26 @@ class Construct_Sequential(nn.Sequential):
                     x = F.relu(x)
                 elif isinstance(module, nn.Sigmoid):
                     x = torch.sigmoid(x)
+                elif isinstance(module, nn.Conv2d):
+                    x = F.conv2d(x, weights[name + '.weight'],
+                                weights[name + '.bias'])
+                elif isinstance(module, nn.BatchNorm2d):
+                    #print(self._modules[name].__dict__)
+                    x = F.batch_norm(x, None, None, weight=weights[name+'.weight'],
+                            bias=weights[name+'.bias'], training=True)
+                elif isinstance(module, nn.MaxPool2d):
+                    #print(self._modules[name].__dict__)
+                    x = self._modules[name](x)
+                elif isinstance(module, Change_view):
+                    #print(self._modules[name])
+                    x = module(x)
                 else:
                     raise KeyError("Not Expedted Module '{}'".format(module))
             return x
+
+    def _copy(self, weights):
+        for name, param in self.named_parameters():
+            param.data = weights[name].data
 
 #class MAML():
 #    def __init__(self, *args, **kwargs):
@@ -65,16 +92,28 @@ dict = OrderedDict([
 	('conv3', nn.Conv2d(64, 64, (3, 3))),
 	('bn3', nn.BatchNorm2d(64)),
 	('relu3', nn.ReLU()),
-	('pool3', nn.MaxPool2d((2, 2)))
+	('pool3', nn.MaxPool2d((2, 2))),
+    ])
+dict2 = OrderedDict([
+    ('flatten1', Change_view((2, 64)))
+    ])
+dict3 = OrderedDict([
+    ('fc1', nn.Linear(64, 5))
     ])
 
+print(dict2.update(dict3))
+print(dict.update(dict2))
 
 model = Construct_Sequential(dict)
+feature = Construct_Sequential(dict)
 #print('parameters', model._parameters)
 print(model)
-x = torch.rand((1, 1, 28, 28))
+#x = torch.rand((1, 1, 28, 28))
+x = torch.rand((2, 1, 28, 28))
 print(x.shape)
-print(model(x).shape)
+y = model(x)
+print(y.shape)
+
 
 #for name, parameter in model.named_parameters():
 #    print(name, parameter)
