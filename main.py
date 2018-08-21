@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.optim as optim
-from torchviz import make_dot
+#from torchviz import make_dot
 
 from model import Simple
 from data.data_gen import Sinewave_data
