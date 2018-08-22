@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.optim as optim
-from torchviz import make_dot
+#from torchviz import make_dot
 
 from model import Simple
 from data.data_gen import Sinewave_data
@@ -89,8 +89,9 @@ def main():
     model = Construct_Sequential(config['model'])
     print(model)
     fast_net = Construct_Sequential(config['model'])
-    loss_func = F.mse_loss 
-    
+    loss_func = F.mse_loss
+    loss_func = torch.nn.MSELoss(reduction='none')
+
     learning_rate = args.beta
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
@@ -114,15 +115,19 @@ def main():
         A = np.random.uniform(1, 5, batch_size).reshape(-1, 1)
         b = np.random.uniform(0, np.pi, batch_size).reshape(-1, 1)
 
-        x = np.random.uniform(-5, 5, batch_size*num_examples).reshape(-1, num_examples)
+        x = np.random.uniform(-5, 5, batch_size*num_examples*2).reshape(-1, num_examples*2)
         y = np.multiply(A, np.sin(x - b))
         
-        fast_net.copy_(weight0)
-        input = torch.tensor(x.reshape(-1, 1)).float()
-        target = torch.tensor(y.reshape(-1, 1)).float()
+#        fast_net.copy_(weight0)
+#        input = torch.tensor(x.reshape(-1, 1)).float()
+#        target = torch.tensor(y.reshape(-1, 1)).float()
+#
+#        predict = fast_net(input)
+#        print(predict.size(), target.size())
 
-        predict = fast_net(input)
-        print(predict.size(), target.size())
+        losses = []
+        meta_predicts = []
+        meta_losses = []
 
         for j in range(batch_size):
             fast_net.copy_(weight0)
@@ -130,20 +135,26 @@ def main():
 #            model_j = copy.deepcopy(model)
 #            model_j.copy_(model)
 			
-            A = np.random.uniform(1, 5, 1)
-            b = np.random.uniform(0, np.pi, 1)
-            xs[j] = np.random.uniform(-5, 5, num_examples)
-            ys[j] = A*np.sin(xs[j]-b)
-
-            input = torch.tensor(xs[j]).reshape(-1, 1).float()
-            target = torch.tensor(ys[j]).reshape(-1, 1).float()
-
+#            A = np.random.uniform(1, 5, 1)
+#            b = np.random.uniform(0, np.pi, 1)
+#            xs[j] = np.random.uniform(-5, 5, num_examples)
+#            ys[j] = A*np.sin(xs[j]-b)
+#
+#            input = torch.tensor(xs[j]).reshape(-1, 1).float()
+#            target = torch.tensor(ys[j]).reshape(-1, 1).float()
+            input = torch.tensor(x[j][:num_examples]).reshape(-1, 1).float()
+            target = torch.tensor(y[j][:num_examples]).reshape(-1, 1).float()
+            #print(input, target)
+#
             predict = fast_net(input)
-            losses[j][0] = loss_func(predict, target)
+            loss = loss_func(predict, target).reshape(-1)
+            losses.append(torch.mean(loss, 0, True))
+            #losses[j][0] = loss_func(predict, target)
 
-            grad = torch.autograd.grad(losses[j][0], fast_net.parameters(), create_graph=True)
-            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx]) 
-                for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters()))
+            grads = torch.autograd.grad(losses[-1], fast_net.parameters(), create_graph=True)
+            #grad = torch.autograd.grad(losses[j][0], fast_net.parameters(), create_graph=True)
+            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad) 
+                for name, grad in zip(weight0, grads)
                 ])
 
             for k in range(num_step-1):
@@ -155,11 +166,15 @@ def main():
                     for name, (idx, _) in zip(weight_, enumerate(fast_net.parameters()))
                     ])
 
-            meta_predict = model.forward(input, weight_)
-            meta_losses[j] = loss_func(meta_predict, target) / batch_size
+            inputb = torch.tensor(x[j][num_examples:]).reshape(-1, 1).float()
+            targetb = torch.tensor(y[j][num_examples:]).reshape(-1, 1).float()
+            meta_predict = model.forward(inputb, weight_)
+            meta_predicts.append(meta_predict)
+            meta_loss = loss_func(meta_predict, targetb).reshape(-1)
+            meta_losses.append(meta_loss)
 
-        loss = torch.mean(losses)
-        meta_loss = torch.sum(meta_losses)
+        loss = torch.mean(torch.cat(losses))
+        meta_loss = torch.mean(torch.cat(meta_losses))
         
         with open("logs/%s/log.txt"%args.log_folder, "a") as log_file:
             log_file.write("%5d\t%10.4f\n"%(i, meta_loss.item()))
@@ -169,8 +184,8 @@ def main():
             print("%4d, preloss=%.4f \t postloss=%.4f"%(i, loss, meta_loss))
             torch.save(model, "logs/%s/%05d.pt"%(args.log_folder, i))
 #            torch.save(model, "logs/sine/%05d.pt"%(i))
-            dot = make_dot(meta_loss)
-            dot.render()
+#            dot = make_dot(meta_loss)
+#            dot.render()
         
         optimizer.zero_grad()
         meta_loss.backward()

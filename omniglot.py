@@ -138,15 +138,6 @@ def main():
     model = Construct_Sequential(config['model']).to(device)
     for name, param in model.named_parameters():
         print(name, param.shape)
-    for (name, module) in model._modules.items():
-        print(name, module)
-        if isinstance(module, nn.Conv2d):
-        #if hasattr(module, 'weight') and not 'bn' in name:
-            torch.nn.init.xavier_uniform_(module.weight)
-            #print(module.weight)
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight)
-            #print(module.weight)
     print(model)
     print('model', torch.cuda.memory_allocated(torch.cuda.current_device()))
     fast_net = Construct_Sequential(config['model']).to(device)
@@ -178,7 +169,7 @@ def main():
 
     num_classes = 5     # 5-way
     num_examples = 1    # 1-shot
-    batch_size = 32#8#16#32     # for 5-way 1-shot
+    batch_size = 8#16#32     # for 5-way 1-shot
     alpha = .4          # for 5-way 1-shot
     num_step = 1        # for 5-way 1-shot
 
@@ -214,7 +205,6 @@ def main():
         images = np.array([[list(Image.open(imagePaths[i][j]).rotate(random.choice(rotations)).getdata())                            # (N * C * K, 28*28)
                 for j in range(num_classes*num_examples*2)]
             for i in range(batch_size)]) / 255.
-        images = 1-images
         labels = np.array(labels)
         #print(images.shape)
         input_image_shape = (-1, 1, 28, 28)
@@ -232,7 +222,7 @@ def main():
         weight0 = {}
         for name, pram in model.named_parameters():
            weight0[name] = pram 
-        fast_net._copy(weight0)
+        #fast_net._copy(weight0)
 
         #losses = torch.zeros((batch_size, num_step, 1))
         #meta_losses = torch.zeros((batch_size, 1))
@@ -249,49 +239,28 @@ def main():
         #print('fast_net', torch.cuda.memory_allocated(torch.cuda.current_device()))
 
         #weights_= []
-        predicts = []
-        losses = []
         meta_predicts = []
         meta_losses = []
         for j in range(batch_size):
-            #print(input[j].shape, target[j].shape)
-            logits = fast_net(input[j].reshape(input_image_shape))#.reshape(-1)
-            #print(logits)
-            predict = torch.softmax(logits, dim=1)
-            #print(predict)
-            #predict = torch.argmax(torch.softmax(logits, dim=1), dim=1)
-            #print(predict)
-            #loss_ = loss_func(predict, target[j]) / num_examples
-            loss_ = loss_func(logits, target[j]) / num_examples
-            #print(loss_)
-            loss = torch.mean(loss_, 0, True)
+            fast_net._copy(weight0)
+            predict = fast_net(input[j].reshape(input_image_shape))
+            losses = loss_func(predict, target[j].reshape(-1))
+            loss = torch.mean(losses)
             #print(j, loss)
-            predicts.append(predict.reshape(-1, num_examples*num_classes, num_classes))
-            losses.append(loss)
 
-            grads = torch.autograd.grad(losses[-1], fast_net.parameters(), create_graph=True) 
-            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad)
-                        for name, grad in zip(weight0, grads) ])
-            #grad = torch.autograd.grad(losses[-1], fast_net.parameters(), create_graph=True) 
-            #weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx])
-            #            for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ])
+            grad = torch.autograd.grad(loss, fast_net.parameters(), create_graph=True) 
+            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx])
+                        for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ])
             #weights_.append(weight_)
-            meta_logits = fast_net.forward(inputb[j].reshape(input_image_shape), weight_)
-            #print(meta_logits)
-            meta_predict = torch.softmax(meta_logits, dim=1)
-            #print(meta_predict)
-            meta_loss_= loss_func(meta_logits, targetb[j].reshape(-1))
-            #meta_loss_= loss_func(meta_predict, targetb[j].reshape(-1))
-            #print(j, meta_loss_)
-            meta_loss = torch.mean(meta_loss_, 0, True)
+            meta_predict = model.forward(inputb[j].reshape(input_image_shape), weight_)
+            meta_loss = torch.mean(loss_func(meta_predict, targetb[j].reshape(-1)), 0, True)
             #print(j, meta_loss)
 
             meta_predicts.append(meta_predict.reshape(-1, num_examples*num_classes, num_classes))
             meta_losses.append(meta_loss)
-        predicts = torch.cat(predicts)
-        loss = torch.mean(torch.cat(losses))
         meta_predicts = torch.cat(meta_predicts)
-        meta_loss = torch.mean(torch.cat(meta_losses))
+        meta_losses = torch.cat(meta_losses)
+        meta_loss = torch.mean(meta_losses)
         #print(meta_predicts.shape)
         #print(meta_loss)
             #meta_predict = torch.cat([model.forward(inputb[j:j+num_classes*num_examples], weight_) for j, weight_ in enumerate(weights_)])
@@ -334,18 +303,9 @@ def main():
         if classification == True:
             #print('softmax', torch.softmax(meta_predicts, dim=1))
             #print(torch.argmax(torch.softmax(meta_predicts, dim=1), dim=1), targetb)
-            accuracy = (torch.argmax(predicts, dim=1) == target).float().mean()
-            meta_accuracy = (torch.argmax(meta_predicts, dim=1) == targetb).float().mean()
-#            if i % 100 == 0:
-#                print('pre')
-#                print(logits[0])
-#                print(predicts[0])
-#                print(torch.argmax(predicts[0], dim=1))
-#                print(target)
-#                print('post')
-#                print(torch.argmax(meta_predicts, dim=1))
-#                print(targetb)
-#            
+            accuracy = (torch.argmax(torch.softmax(predict, dim=1), dim=1) == target).float().mean()
+            meta_accuracy = (torch.argmax(torch.softmax(meta_predicts, dim=1), dim=1) == targetb).float().mean()
+            
 
 #            accuracy = torch.mean(torch.cat([ )for meta_predict in zip(meta_predicts, target)]))
         """ 
@@ -395,7 +355,6 @@ def main():
         if i % 100 == 0:
             #print("%4d, loss=%.4f"%(i, meta_loss))
             if classification:
-                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, loss, meta_loss))
                 print("%4d, preaccuracy=%.4f \t postaccuracy=%.4f"%(i, accuracy, meta_accuracy))
             else:
                 print("%4d, preloss=%.4f \t postloss=%.4f"%(i, loss, meta_loss))
