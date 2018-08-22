@@ -140,7 +140,7 @@ def main():
         print(name, param.shape)
     print(model)
     print('model', torch.cuda.memory_allocated(torch.cuda.current_device()))
-    fast_net = Construct_Sequential(config['model'])
+    fast_net = Construct_Sequential(config['model']).to(device)
 	
 	# loss for Sinusoidal
     loss_func = F.mse_loss 
@@ -202,18 +202,18 @@ def main():
         #print(labels)
         #print(np.array(imagePath_label).shape)
 
-        images = np.array([[list(Image.open(imagePaths[i][j]).rotate(np.random.randint(4)*90).getdata())                            # (N * C * K, 28*28)
+        images = np.array([[list(Image.open(imagePaths[i][j]).rotate(random.choice(rotations)).getdata())                            # (N * C * K, 28*28)
                 for j in range(num_classes*num_examples*2)]
             for i in range(batch_size)]) / 255.
         labels = np.array(labels)
         #print(images.shape)
         input_image_shape = (-1, 1, 28, 28)
 
-        input = torch.tensor(images[:, :num_classes*num_examples]).reshape(input_image_shape).float().to(device)
-        inputb = torch.tensor(images[:, num_classes*num_examples:]).reshape(input_image_shape).float().to(device)
+        input = torch.tensor(images[:, :num_classes*num_examples]).float().to(device)
+        inputb = torch.tensor(images[:, num_classes*num_examples:]).float().to(device)
 
-        target = torch.tensor(labels[:, :num_classes*num_examples]).reshape(-1,).long().to(device)
-        targetb = torch.tensor(labels[:, num_classes*num_examples:]).reshape(-1,).long().to(device)
+        target = torch.tensor(labels[:, :num_classes*num_examples]).long().to(device)
+        targetb = torch.tensor(labels[:, num_classes*num_examples:]).long().to(device)
 #        target = torch.tensor([labels[i] for i in range(batch_size*num_classes*num_examples)]).long().to(device)
 #        targetb = torch.tensor([labels[batch_size*num_classes:][i] for i in range(batch_size*num_classes*num_examples)]).long().to(device)
         #print(input.shape)
@@ -222,27 +222,52 @@ def main():
         weight0 = {}
         for name, pram in model.named_parameters():
            weight0[name] = pram 
-        fast_net._copy(weight0)
+        #fast_net._copy(weight0)
 
-        losses = torch.zeros((batch_size, num_step, 1))
-        meta_losses = torch.zeros((batch_size, 1))
+        #losses = torch.zeros((batch_size, num_step, 1))
+        #meta_losses = torch.zeros((batch_size, 1))
 
-        predict = fast_net(input)
+        #predict = fast_net(input.reshape(input_image_shape))
+        #losses = loss_func(predict, target.reshape(-1))
+        #loss = torch.mean(losses)
         #print(torch.softmax(predict, dim=1))
         #print(torch.argmax(torch.softmax(predict, dim=1), dim=1))
         #print(target)
         #print(predict.shape)
         #print(loss_func)
-        losses = loss_func(predict, target)
         #print(losses)
         #print('fast_net', torch.cuda.memory_allocated(torch.cuda.current_device()))
 
-        weights_= []
-        for j in range(batch_size*num_classes*num_examples):
-            grad = torch.autograd.grad(losses[j], fast_net.parameters(), create_graph=True) 
-            weights_.append(OrderedDict([ (name, weight0[name] - alpha*grad[idx])
-                        for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ]))
+        #weights_= []
+        meta_predicts = []
+        meta_losses = []
+        for j in range(batch_size):
+            fast_net._copy(weight0)
+            predict = fast_net(input[j].reshape(input_image_shape))
+            losses = loss_func(predict, target[j].reshape(-1))
+            loss = torch.mean(losses)
+            #print(j, loss)
+
+            grad = torch.autograd.grad(loss, fast_net.parameters(), create_graph=True) 
+            weight_ = OrderedDict([ (name, weight0[name] - alpha*grad[idx])
+                        for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ])
+            #weights_.append(weight_)
+            meta_predict = model.forward(inputb[j].reshape(input_image_shape), weight_)
+            meta_loss = torch.mean(loss_func(meta_predict, targetb[j].reshape(-1)), 0, True)
+            #print(j, meta_loss)
+
+            meta_predicts.append(meta_predict.reshape(-1, num_examples*num_classes, num_classes))
+            meta_losses.append(meta_loss)
+        meta_predicts = torch.cat(meta_predicts)
+        meta_losses = torch.cat(meta_losses)
+        meta_loss = torch.mean(meta_losses)
+        #print(meta_predicts.shape)
+        #print(meta_loss)
+            #meta_predict = torch.cat([model.forward(inputb[j:j+num_classes*num_examples], weight_) for j, weight_ in enumerate(weights_)])
+            #meta_loss = torch.mean(loss_func(meta_predicts, targetb))
         #print('grads', torch.cuda.memory_allocated(torch.cuda.current_device()))
+        #meta_predicts = torch.cat([model.forward(inputb[j:j+num_classes*num_examples], weight_) for j, weight_ in enumerate(weights_)])
+        #meta_loss = torch.mean(loss_func(meta_predicts, targetb))
         #for name in weight0:
         #    print(name)
         """
@@ -260,13 +285,11 @@ def main():
                             for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ])
                         for grad in grads]
         """ 
-        loss = torch.mean(losses)
         #img = input[0][0].cpu().data.numpy()*255
         #print(img.astype(int))
         #img = inputb[0][0].cpu().data.numpy()*255
         #print(img.astype(int))
         #Image.fromarray((input[0][0].data.cpu().numpy()*255).astype(int)).show()
-        meta_predicts = torch.cat([model.forward(inputb[j:j+1], weight_) for j, weight_ in enumerate(weights_)])
         #print(torch.softmax(meta_predicts, dim=1))
         idx = np.random.randint(batch_size*num_classes*num_examples)
         #print(torch.argmax(torch.softmax(meta_predicts, dim=1), dim=1))
@@ -276,7 +299,6 @@ def main():
         #print(loss_func(meta_predicts, targetb))
         #print(i)
         #print([(meta_predict, target) for meta_predict in meta_predicts])
-        meta_loss = torch.mean(loss_func(meta_predicts, targetb))
 
         if classification == True:
             #print('softmax', torch.softmax(meta_predicts, dim=1))
@@ -326,6 +348,7 @@ def main():
         meta_loss = torch.sum(meta_losses)
         
 """
+        #print("%4d, preaccuracy=%.4f \t postaccuracy=%.4f"%(i, accuracy, meta_accuracy))
         with open("logs/%s/log.txt"%args.log_folder, "a") as log_file:
             log_file.write("%5d\t%10.4f\n"%(i, meta_loss.item()))
 
