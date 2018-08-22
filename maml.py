@@ -95,7 +95,7 @@ dict = OrderedDict([
 	('pool3', nn.MaxPool2d((2, 2))),
     ])
 dict2 = OrderedDict([
-    ('flatten1', Change_view((2, 64)))
+    ('flatten1', Change_view((-1, 64)))
     ])
 dict3 = OrderedDict([
     ('fc1', nn.Linear(64, 5))
@@ -105,6 +105,7 @@ print(dict2.update(dict3))
 print(dict.update(dict2))
 
 model = Construct_Sequential(dict)
+fast_net = Construct_Sequential(dict)
 feature = Construct_Sequential(dict)
 #print('parameters', model._parameters)
 print(model)
@@ -113,6 +114,98 @@ x = torch.rand((2, 1, 28, 28))
 print(x.shape)
 y = model(x)
 print(y.shape)
+
+import os, random
+from PIL import Image
+import numpy as np
+data_folder = './data/omniglot_resized'
+character_folders = [os.path.join(data_folder, family, character) \
+        for family in os.listdir(data_folder) \
+        if os.path.isdir(os.path.join(data_folder, family)) \
+        for character in os.listdir(os.path.join(data_folder, family))]
+random.seed(1)
+random.shuffle(character_folders)
+num_val = 100
+num_train = 1200 - num_val
+
+metatrain_character_folders = character_folders[:num_train]
+metaval_character_folders = character_folders[num_train+num_val:]
+rotations = [0, 90, 180, 270]
+
+batch_size = 8
+alpha = .4
+num_classes = 5
+num_examples = 1
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+max_iter = 20
+for i in range(max_iter):
+    characters = [random.sample(metatrain_character_folders, num_classes) 
+            for i in range(batch_size)]
+    imagePath_label = [[(os.path.join(character, image), j) \
+                for j, character in enumerate(characters[i])
+                for image in random.sample(os.listdir(character), num_examples*2)] \
+            for i in range(batch_size)]
+    #print(imagePath_label[0])
+    
+    imagePath_label = [[[i[j*2] for j in p]+[i[j*2+1] for j in p]
+            for p in [np.random.permutation(num_classes)]][0]
+        for i in imagePath_label]
+    #print(imagePath_label[0])
+    
+    imagePaths = [[imagePath_label[i][j][0] for j in range(num_classes*num_examples*2)]
+            for i in range(batch_size)]
+    labels = [[imagePath_label[i][j][1] for j in range(num_classes*num_examples*2)]
+            for i in range(batch_size)]
+    
+    images = np.array([[list(Image.open(imagePaths[i][j]).rotate(random.choice(rotations)).getdata())                            # (N * C * K, 28*28)
+            for j in range(num_classes*num_examples*2)]
+        for i in range(batch_size)]) / 255.
+    images = 1-images
+    labels = np.array(labels)
+    
+    input_image_shape = (-1, 1, 28, 28)
+    input = torch.tensor(images[:, :num_classes*num_examples]).reshape(input_image_shape).float()
+    inputb = torch.tensor(images[:, num_classes*num_examples:]).reshape(input_image_shape).float()
+     
+    target = torch.tensor(labels[:, :num_classes*num_examples]).reshape(-1,).long()
+    targetb = torch.tensor(labels[:, num_classes*num_examples:]).reshape(-1,).long()
+    
+    weight0 = {}
+    for name, param in model.named_parameters():
+        weight0[name] = param
+    fast_net._copy(weight0)
+    
+    predict = fast_net(input)
+    #print(torch.argmax(torch.softmax(predict, dim=1), dim=1))
+    #print(target)
+    print('preaccuracy', (torch.argmax(torch.softmax(predict, dim=1), dim=1)==target).float().mean())
+    
+    loss_fun = torch.nn.CrossEntropyLoss(reduction='none')
+    losses = loss_fun(predict, target)
+    loss = torch.mean(losses)
+    
+    weights = []
+    for j in range(batch_size*num_classes*num_examples):
+        grad = torch.autograd.grad(losses[j], fast_net.parameters(), create_graph=True)
+        weights.append(OrderedDict([ (name, weight0[name] - alpha*grad[idx])
+            for name, (idx, _) in zip(weight0, enumerate(fast_net.parameters())) ]))
+    
+    predictb = torch.cat([model(inputb[j:j+1], weight) for j, weight in enumerate(weights)])
+    lossesb = loss_fun(predictb, targetb)
+    meta_loss = torch.mean(lossesb)
+    #print(torch.argmax(torch.softmax(predictb, dim=1), dim=1))
+    #print(targetb)
+    print('postaccuracy', (torch.argmax(torch.softmax(predictb, dim=1), dim=1)==targetb).float().mean())
+    
+    optimizer.zero_grad()
+    meta_loss.backward()
+    optimizer.step()
+
+#print(labels)
+#print(target, targetb)
+
 
 
 #for name, parameter in model.named_parameters():
