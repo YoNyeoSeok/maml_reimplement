@@ -79,6 +79,9 @@ dict = OrderedDict([
 	('linear1', nn.Linear(1, 2)),
 	('sigmoid1', nn.Sigmoid()),
 	('linear2', nn.Linear(2, 1))])
+model = Construct_Sequential(dict).to("cuda:0")
+print(torch.cuda.memory_allocated(0))
+print(torch.cuda.max_memory_allocated(0))
 
 dict = OrderedDict([
 	('conv1', nn.Conv2d(1, 64, (3, 3))),
