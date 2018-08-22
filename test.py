@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from collections import OrderedDict
+from torchviz import make_dot
 
 class Change_view(nn.Module):
     def __init__(self, size):
@@ -29,8 +30,12 @@ class Construct_Sequential(nn.Sequential):
         else:
             for name, module in self._modules.items():
                 if isinstance(module, nn.Linear):
-                    x = F.linear(x, weights[name + '.weight'], 
+                    if module.bias is None:
+                        x = F.linear(x, weights[name + '.weight'], module.bias)
+                    else:
+                        x = F.linear(x, weights[name + '.weight'], 
                                 weights[name + '.bias'])
+
                 elif isinstance(module, nn.ReLU):
                     x = F.relu(x)
                 elif isinstance(module, nn.Sigmoid):
@@ -74,59 +79,103 @@ class Construct_Sequential(nn.Sequential):
 #                    
 #        pass
 
-dict = OrderedDict([
-    ('linera', nn.Linear(1, 1))
+dict_ = OrderedDict([
+    ('linear1', nn.Linear(1, 2, bias=None)),
+    ('sigmoid1', nn.Sigmoid()),
+    ('linear2', nn.Linear(2, 1, bias=None))
     ])
-model = Construct_Sequential(dict)
-fast_net = Construct_Sequential(dict)
+model = Construct_Sequential(dict_)
+fast_net = Construct_Sequential(dict_)
 w0 = {}
+for name, module in model._modules.items():
+    if isinstance(module, nn.Linear):
+        torch.nn.init.ones_(module.weight)
 for name, param in model.named_parameters():
     w0[name] = param
     print(name, param.data)
+
 
 alpha = .1
 beta = .1
 optimizer = torch.optim.SGD(model.parameters(), beta)
 
 fast_net._copy(w0)
-x = torch.tensor([1.])
+x = torch.tensor([[2.], [3.]]).requires_grad_(True)
+x_ = torch.tensor([[2.1], [3.1]]).requires_grad_(True)
 y = torch.tensor([0.])
+
+print('predict')
 predict = model(x)
-print('predict')
-print(model(x))
-loss = (predict-y)**2
+print(predict)
+dot = make_dot(predict, params=dict(list(model.named_parameters()) + [('x', x)]))
+dot.render('first_predict')
+
 print('loss')
-print(loss)
-
-grads = torch.autograd.grad(loss, fast_net.parameters(), create_graph=True)
-w_ = OrderedDict([ (name, w0[name] - alpha*grad)
-    for name, grad in zip(w0, grads)
-    ])
-print('alpha*grads')
-for grad in grads:
-    print(grad*alpha)
-
-print('compare')
-for name, param in fast_net.named_parameters():
-    print(name, param.data, w_[name])
-
-predict = model.forward(x, w_)
-print('predict')
-print(model(x, w_))
 loss = (predict-y)**2
+print(loss)
+dot = make_dot(loss, params=dict(list(model.named_parameters()) + [('x', x)]))
+dot.render('first_loss')
 
-optimizer.zero_grad()
-loss.backward()
-optimizer.step()
+meta_loss_ = []
+for i in range(len(x)):
+    grads = torch.autograd.grad(loss[i], fast_net.parameters(), create_graph=True)#, retain_graph=True)
+    w_ = OrderedDict([ (name, w0[name] - alpha*grad)
+        for name, grad in zip(w0, grads)
+        ])
+#    print('grad compute: alpha*grads')
+#    for grad in grads:
+#        print(grad*alpha)
+#    print([grad.reshape(-1) for grad in grads])
+#    print(torch.cat([grad.reshape(-1) for grad in grads]))
+#    print(torch.sum(torch.cat([grad.reshape(-1) for grad in grads])))
+    dot = make_dot(torch.sum(torch.cat([grad.reshape(-1) for grad in grads])), params=dict(list(fast_net.named_parameters()) + [('x', x)]))
+    dot.render('grads')
+    
+#    print('compare')
+#    for name, param in fast_net.named_parameters():
+#        print(name, param.data, w_[name])
+   
+    print('meta predict')
+    meta_predict = fast_net.forward(x_[i], w_)
+    print(meta_predict)
+#    dot = make_dot(meta_predict, params=dict(list(fast_net.named_parameters()) + [('x', x)]))
+#    dot.render('meta_predict')
+
+    meta_loss_.append((meta_predict-y)**2)
+
+meta_loss = torch.mean(torch.cat(meta_loss_))
+print('meta_loss')
+print(meta_loss)
+dot = make_dot(meta_loss, params=dict(list(fast_net.named_parameters()) + [('x', x), ('x_', x_)]))
+dot.render('meta_loss')
+
+
+print('meta_loss grad')
+if True:
+    optimizer.zero_grad()
+    meta_loss.backward()
+    for name, param in model.named_parameters():
+        print(name, param.grad)
+    optimizer.step()
+else:
+    grads = torch.autograd.grad(meta_loss, model.parameters())#, retain_graph=True)
+    w_ = OrderedDict([ (name, w0[name] - alpha*grad)
+        for name, grad in zip(w0, grads)
+        ])
+    model._copy(w_)
+    print(grads)
 
 print('model')
 for name, param in model.named_parameters():
     print(name, param.data, param.grad)
 
-pridict = model(x)
-print('predict')
+result_predict = model(x)
+print('result_predict')
 print(model(x))
 #print(model(x))
+
+dot = make_dot(result_predict, params=dict(list(model.named_parameters()) + [('x', x)]))
+dot.render('result_predict')
 
 """
 
