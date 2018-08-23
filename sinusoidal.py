@@ -112,11 +112,11 @@ def main():
         losses = torch.zeros((batch_size, num_step, 1))
         meta_losses = torch.zeros((batch_size, 1))
 
-        A = np.random.uniform(1, 5, batch_size).reshape(-1, 1)
-        b = np.random.uniform(0, np.pi, batch_size).reshape(-1, 1)
-
-        x = np.random.uniform(-5, 5, batch_size*num_examples*2).reshape(-1, num_examples*2)
-        y = np.multiply(A, np.sin(x - b))
+#        A = np.random.uniform(1, 5, batch_size).reshape(-1, 1)
+#        b = np.random.uniform(0, np.pi, batch_size).reshape(-1, 1)
+#
+#        x = np.random.uniform(-5, 5, batch_size*num_examples*2).reshape(-1, num_examples*2)
+#        y = np.multiply(A, np.sin(x - b))
         
 #        fast_net.copy_(weight0)
 #        input = torch.tensor(x.reshape(-1, 1)).float()
@@ -135,15 +135,15 @@ def main():
 #            model_j = copy.deepcopy(model)
 #            model_j.copy_(model)
 			
-#            A = np.random.uniform(1, 5, 1)
-#            b = np.random.uniform(0, np.pi, 1)
-#            xs[j] = np.random.uniform(-5, 5, num_examples)
-#            ys[j] = A*np.sin(xs[j]-b)
-#
-#            input = torch.tensor(xs[j]).reshape(-1, 1).float()
-#            target = torch.tensor(ys[j]).reshape(-1, 1).float()
-            input = torch.tensor(x[j][:num_examples]).reshape(-1, 1).float()
-            target = torch.tensor(y[j][:num_examples]).reshape(-1, 1).float()
+            A = np.random.uniform(1, 5, 1)
+            b = np.random.uniform(0, np.pi, 1)
+            xs[j] = np.random.uniform(-5, 5, num_examples)
+            ys[j] = A*np.sin(xs[j]-b)
+
+            input = torch.tensor(xs[j]).reshape(-1, 1).float()
+            target = torch.tensor(ys[j]).reshape(-1, 1).float()
+#            input = torch.tensor(x[j][:num_examples]).reshape(-1, 1).float()
+#            target = torch.tensor(y[j][:num_examples]).reshape(-1, 1).float()
             #print(input, target)
 #
             predict = fast_net(input)
@@ -166,11 +166,12 @@ def main():
                     for name, (idx, _) in zip(weight_, enumerate(fast_net.parameters()))
                     ])
 
-            inputb = torch.tensor(x[j][num_examples:]).reshape(-1, 1).float()
-            targetb = torch.tensor(y[j][num_examples:]).reshape(-1, 1).float()
-            meta_predict = model.forward(inputb, weight_)
+#            inputb = torch.tensor(xs[j][num_examples:]).reshape(-1, 1).float()
+#            targetb = torch.tensor(ys[j][num_examples:]).reshape(-1, 1).float()
+#            meta_predict = model.forward(inputb, weight_)
+            meta_predict = model.forward(input, weight_)
             meta_predicts.append(meta_predict)
-            meta_loss = loss_func(meta_predict, targetb).reshape(-1)
+            meta_loss = loss_func(meta_predict, target).reshape(-1)
             meta_losses.append(meta_loss)
 
         loss = torch.mean(torch.cat(losses))

@@ -37,7 +37,8 @@ class Construct_Sequential(nn.Sequential):
                     x = torch.sigmoid(x)
                 elif isinstance(module, nn.Conv2d):
                     x = F.conv2d(x, weights[name + '.weight'],
-                                weights[name + '.bias'])
+                                weights[name + '.bias'],
+                                module.stride, module.padding)
                 elif isinstance(module, nn.BatchNorm2d):
                     #print(self._modules[name].__dict__)
                     x = F.batch_norm(x, None, None, weight=weights[name+'.weight'],
@@ -52,7 +53,7 @@ class Construct_Sequential(nn.Sequential):
                     raise KeyError("Not Expedted Module '{}'".format(module))
             return x
 
-    def _copy(self, weights):
+    def copy_(self, weights):
         for name, param in self.named_parameters():
             param.data = weights[name].data
 
@@ -73,29 +74,24 @@ class Construct_Sequential(nn.Sequential):
 #                if j == 0:
 #                    
 #        pass
-
-
-dict = OrderedDict([
-	('linear1', nn.Linear(1, 2)),
-	('sigmoid1', nn.Sigmoid()),
-	('linear2', nn.Linear(2, 1))])
-model = Construct_Sequential(dict).to("cuda:0")
-print(torch.cuda.memory_allocated(0))
-print(torch.cuda.max_memory_allocated(0))
-
-dict = OrderedDict([
-	('conv1', nn.Conv2d(1, 64, (3, 3))),
+"""
+dict1 = OrderedDict([
+	('conv1', nn.Conv2d(1, 64, 3, 2)),
 	('bn1', nn.BatchNorm2d(64)),
 	('relu1', nn.ReLU()),
-	('pool1', nn.MaxPool2d((2, 2))),
-	('conv2', nn.Conv2d(64, 64, (3, 3))),
+    #('pool1', nn.MaxPool2d((2, 2))),
+	('conv2', nn.Conv2d(64, 64, 3, 2)),
 	('bn2', nn.BatchNorm2d(64)),
 	('relu2', nn.ReLU()),
-	('pool2', nn.MaxPool2d((2, 2))),
-	('conv3', nn.Conv2d(64, 64, (3, 3))),
+    #('pool2', nn.MaxPool2d((2, 2))),
+	('conv3', nn.Conv2d(64, 64, 3, 2)),
 	('bn3', nn.BatchNorm2d(64)),
 	('relu3', nn.ReLU()),
-	('pool3', nn.MaxPool2d((2, 2))),
+    #('pool3', nn.MaxPool2d((2, 2))),
+	('conv4', nn.Conv2d(64, 64, 3, 2, 1)),
+	('bn4', nn.BatchNorm2d(64)),
+	('relu4', nn.ReLU()),
+    #('pool3', nn.MaxPool2d((2, 2))),
     ])
 dict2 = OrderedDict([
     ('flatten1', Change_view((-1, 64)))
@@ -104,19 +100,42 @@ dict3 = OrderedDict([
     ('fc1', nn.Linear(64, 5))
     ])
 
+feature = Construct_Sequential(dict1)
 print(dict2.update(dict3))
-print(dict.update(dict2))
+print(dict1.update(dict2))
 
-model = Construct_Sequential(dict)
-fast_net = Construct_Sequential(dict)
-feature = Construct_Sequential(dict)
+model = Construct_Sequential(dict1)
+fast_net = Construct_Sequential(dict1)
+
+fw0= {}
+for name, param in feature.named_parameters():
+    fw0[name] = param
+
+w0= {}
+for name, param in model.named_parameters():
+    w0[name] = param
+
 #print('parameters', model._parameters)
 print(model)
 #x = torch.rand((1, 1, 28, 28))
-x = torch.rand((2, 1, 28, 28))
+x = torch.rand((5, 1, 28, 28))
 print(x.shape)
+f = feature(x)
+f = feature(x, fw0)
+print(f.shape)
 y = model(x)
 print(y.shape)
+"""
+
+
+"""
+dict = OrderedDict([
+	('linear1', nn.Linear(1, 2)),
+	('sigmoid1', nn.Sigmoid()),
+	('linear2', nn.Linear(2, 1))])
+model = Construct_Sequential(dict).to("cuda:0")
+print(torch.cuda.memory_allocated(0))
+print(torch.cuda.max_memory_allocated(0))
 
 import os, random
 from PIL import Image
@@ -214,5 +233,5 @@ for i in range(max_iter):
 #for name, parameter in model.named_parameters():
 #    print(name, parameter)
 #    weights_dict[name] = parameter
-
+"""
 

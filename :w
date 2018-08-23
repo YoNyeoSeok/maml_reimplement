@@ -100,7 +100,7 @@ def main():
 #    for name, param in model.named_parameters():
 #        print(name, param.shape)
         for (name, module) in model._modules.items():
-            #print(name, module)
+            print(name, module)
             if isinstance(module, nn.Conv2d):
             #if hasattr(module, 'weight') and not 'bn' in name:
                 torch.nn.init.xavier_uniform_(module.weight)
@@ -109,7 +109,7 @@ def main():
                 torch.nn.init.normal_(module.weight)
                 #print(module.weight)
     model = model.to(device)
-    #print(model)
+    print(model)
 #    print('model', torch.cuda.memory_allocated(torch.cuda.current_device()))
 #    fast_net = Construct_Sequential(config['model']).to(device)
 	
@@ -173,10 +173,10 @@ def main():
            weight0[name] = pram 
         #fast_net._copy(weight0)
 
-        outputs, _outputs = [], [[] for i in range(args.batch_size)]
-        losses, _losses = [], [[] for i in range(args.batch_size)]
+        outputs, _outputs = [], [[]]*args.batch_size
+        losses, _losses = [], [[]]*args.batch_size
         if classification:
-            accuracies, _accuracies = [], [[] for i in range(args.batch_size)]
+            accuracies, _accuracies = [], [[]]*args.batch_size
 
         for j in range(args.batch_size):
             if args.datasource == "sinusoidal":
@@ -192,7 +192,7 @@ def main():
             
             output = model(input)
             outputs.append(output)
-            loss_ = loss_func(outputs[-1], target) / args.num_examples
+            loss_ = loss_func(output, target) / args.num_examples
             loss = torch.sum(loss_, 0, True)
             losses.append(loss)
             if classification:
@@ -208,8 +208,8 @@ def main():
                         for name, grad in zip(weight0, grads) ])
 
             _output = model.forward(inputb, weight_)
-            _outputs[j].append(_output)
-            _loss_ = loss_func(_outputs[j][-1], targetb) / args.num_examples
+            _outputs.append(_output)
+            _loss_ = loss_func(_output, targetb) / args.num_examples
             _loss = torch.sum(_loss_, 0, True)
             _losses[j].append(_loss)
             if classification:
@@ -221,13 +221,13 @@ def main():
 
             for k in range(args.num_updates-1):
                 param = list([w for k, w in weight_.items()])
-                grads = torch.autograd.grad(_losses[j][-1], param, create_graph=True) 
-                weight_ = OrderedDict([ (name, weight_[name] - args.alpha*grad)
-                            for name, grad in zip(weight_, grads) ])
+                grads = torch.autograd.grad(_losses[-1], param, create_graph=True) 
+                weight_ = OrderedDict([ (name, weight0[name] - args.alpha*grad)
+                            for name, grad in zip(weight0, grads) ])
 
                 _output = model.forward(inputb, weight_)
-                _outputs[j].append(_output)
-                _loss_ = loss_func(_outputs[j][-1], targetb) / args.num_examples
+                _outputs.append(_output)
+                _loss_ = loss_func(_output, targetb) / args.num_examples
                 _loss = torch.sum(_loss_, 0, True)
                 _losses[j].append(_loss)
                 if classification:
@@ -236,10 +236,15 @@ def main():
                     _predict = torch.argmax(_prob, dim=1)
                     _accuracy = (_predict == targetb).float().mean(0, True)
                     _accuracies[j].append(_accuracy)
+
         total_losses = torch.cat(losses)
         total_loss = torch.mean(total_losses)
+        print(_losses)
+        print(len(_losses))
         _total_losses = torch.stack([torch.cat(_loss) for _loss in _losses])
+        print(total_losses)
         _total_loss = torch.mean(_total_losses, dim=0)
+        print(_total_loss)
         if classification:
             tatal_accuracies = torch.cat(accuracies)
             total_accuracy = torch.mean(tatal_accuracies)
@@ -251,16 +256,7 @@ def main():
 #            meta_accuracy = (meta_predicts == targetbs).float().mean()
         
         with open("logs/%s/log.txt"%args.log_folder, "a") as log_file:
-            log_file.write("%5d\t%10.4f\t"%(i, total_loss.item()))
-            for k in range(args.num_updates):
-                log_file.write("%10.4f\t"%(_total_loss[k].item()))
-            if classification:
-                log_file.write("%10.4f\t"%(total_accuracy.item()))
-                for k in range(args.num_updates):
-                    log_file.write("%10.4f\t"%(_total_accuracy[k].item()))
-                
-            log_file.write("\n")
-
+            log_file.write("%5d\t%10.4f\n"%(i, _total_loss.item()))
 
         if i % 100 == 0:
             #print("%4d, loss=%.4f"%(i, meta_loss))
@@ -269,10 +265,10 @@ def main():
                 #print(loss_)
                 #print(outputs)
                 #print(meta_outputs)
-                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss[args.num_updates-1]))
-                print("%4d, preaccuracy=%.4f \t postaccuracy=%.4f"%(i, total_accuracy, _total_accuracy[args.num_updates-1]))
+                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss))
+                print("%4d, preaccuracy=%.4f \t postaccuracy=%.4f"%(i, total_accuracy, _total_accuracy))
             else:
-                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss[args.num_updates-1]))
+                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss))
             torch.save(model, "logs/%s/%05d.pt"%(args.log_folder, i))
         optimizer.zero_grad()
 
@@ -281,7 +277,7 @@ def main():
         if i % 500 == 0:
             validation = True
         else:
-            _total_loss[args.num_updates-1].backward()
+            _total_loss.backward()
 #        for name, param in model.named_parameters():
 #            print(param.grad)
             optimizer.step()
