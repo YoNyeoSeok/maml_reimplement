@@ -104,9 +104,11 @@ def main():
             if isinstance(module, nn.Conv2d):
             #if hasattr(module, 'weight') and not 'bn' in name:
                 torch.nn.init.xavier_uniform_(module.weight)
+                torch.nn.init.ones_(module.weight)
                 #print(module.weight)
             if isinstance(module, nn.Linear):
                 torch.nn.init.normal_(module.weight)
+                torch.nn.init.ones_(module.weight)
                 #print(module.weight)
     model = model.to(device)
     #print(model)
@@ -185,10 +187,14 @@ def main():
                 target = targets[j].reshape(args.num_examples, -1)
                 targetb = targetbs[j].reshape(args.num_examples, -1)
             if args.datasource == "omniglot":
-                input = inputs[j].reshape(input_image_shape)
-                inputb = inputbs[j].reshape(input_image_shape)
-                target = targets[j].reshape(args.num_classes*args.num_examples,)
-                targetb = targetbs[j].reshape(args.num_classes*args.num_examples,)
+                #                input = inputs[j].reshape(input_image_shape)
+#                inputb = inputbs[j].reshape(input_image_shape)
+#                target = targets[j].reshape(args.num_classes*args.num_examples,)
+#                targetb = targetbs[j].reshape(args.num_classes*args.num_examples,)
+                input = torch.tensor(np.ones((5, 1, 28, 28)), dtype=torch.float).to(device)
+                inputb = torch.tensor(np.ones((5, 1, 28, 28)), dtype=torch.float).to(device)
+                target = torch.tensor(np.arange(5)).to(device)
+                targetb = torch.tensor(np.arange(5)).to(device)
             
             output = model(input)
             outputs.append(output)
@@ -269,7 +275,8 @@ def main():
                 #print(loss_)
                 #print(outputs)
                 #print(meta_outputs)
-                print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss[args.num_updates-1]))
+                #print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss[args.num_updates-1]))
+                print(total_losses)
                 print("%4d, preaccuracy=%.4f \t postaccuracy=%.4f"%(i, total_accuracy, _total_accuracy[args.num_updates-1]))
             else:
                 print("%4d, preloss=%.4f \t postloss=%.4f"%(i, total_loss, _total_loss[args.num_updates-1]))
